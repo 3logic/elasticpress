@@ -9,3 +9,7 @@
  * License: GPL2
  */
 
+require 'vendor/autoload.php';
+
+$doc = new Elastica\Document();
+print_r($doc);
