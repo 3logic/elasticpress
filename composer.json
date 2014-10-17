@@ -1,10 +1,10 @@
 {
     "name" : "3logic/elasticpress",
+    "description": "Wordpress plugin which integrates elasticsearch in your blogs",
     "keywords": ["wordpress","elasticsearch"],
     "homepage": "https://github.com/3logic/elasticpress",
     "type": "wordpress-plugin",
-    "repositories":[
-    ],
+    "repositories":[],
     "require": {
         "ruflin/elastica": "1.3.*"
     },
