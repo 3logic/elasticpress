@@ -1,5 +1,8 @@
 {
     "name" : "3logic/elasticpress",
+    "keywords": ["wordpress","elasticsearch"],
+    "homepage": "https://github.com/3logic/elasticpress",
+    "type": "wordpress-plugin",
     "repositories":[
         {
             "type":"composer",
