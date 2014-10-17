@@ -1,4 +1,5 @@
 {
+    "name" : "3logic/elasticpress",
     "repositories":[
         {
             "type":"composer",
