@@ -6,7 +6,8 @@
     "type": "wordpress-plugin",
     "repositories":[],
     "require": {
-        "ruflin/elastica": "1.3.*"
+        "ruflin/elastica": "1.3.*",
+        "composer/installers": "~1.0"
     },
     "autoload": {
         "psr-4": {"Elasticpress\\": "lib/"}
