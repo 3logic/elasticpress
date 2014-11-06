@@ -9,7 +9,17 @@
  * License: GPL2
  */
 
-require 'vendor/autoload.php';
+$loader = require 'vendor/autoload.php';
+$loader->add('Elasticpress',plugin_dir_path( __FILE__ ));
 
-$doc = new Elastica\Document();
-print_r($doc);
+use Elasticpress\EPPlugin;
+
+// // Admin hooks
+// add_action( 'admin_enqueue_scripts', array('TBroadcast\Admin\Panel', 'enqueue_scripts') );
+// add_action( 'add_meta_boxes', array('TBroadcast\Admin\Panel', 'add_meta_box'));
+
+// // Plugin activaction hooks
+register_activation_hook( __FILE__, array('Elasticpress\EPPlugin','activate') );
+register_deactivation_hook( __FILE__, array('Elasticpress\EPPlugin','deactivate') );
+
+Elasticpress\EPPlugin::init();
