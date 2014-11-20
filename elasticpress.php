@@ -9,8 +9,12 @@
  * License: GPL2
  */
 
-$loader = require 'vendor/autoload.php';
-$loader->add('Elasticpress',plugin_dir_path( __FILE__ ));
+if(!defined('EP_LANG_OPT_KEY'))
+	define('EP_LANG_OPT_KEY', 'ep_lang');
+if(!defined('EP_INDEX_VERSION_OPT_KEY'))
+	define('EP_INDEX_VERSION_OPT_KEY', 'ep_index_version');
+
+require 'vendor/autoload.php';
 
 use Elasticpress\EPPlugin;
 
@@ -22,4 +26,6 @@ use Elasticpress\EPPlugin;
 register_activation_hook( __FILE__, array('Elasticpress\EPPlugin','activate') );
 register_deactivation_hook( __FILE__, array('Elasticpress\EPPlugin','deactivate') );
 
-Elasticpress\EPPlugin::init();
+add_action('init', array('Elasticpress\EPPlugin', 'init') );
+
+add_action('wp_loaded', array('Elasticpress\EPPlugin', 'on_wp_loaded') );

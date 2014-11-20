@@ -5,12 +5,17 @@
  */
 get_header(); 
 $results= Elasticpress\EPPlugin::$latest_results;
+
+//DEBUG
+//$ep_client = Elasticpress\EPClient::get_instance();
+//print_r( $ep_client->analyze(Elasticpress\EPPlugin::$latest_search['string'], array('field'=>'post_title')) );
+
 ?>
 
         <div id="container">
             <div id="content" role="main">
 
-<?php if ( have_posts() ) : ?>
+<?php if (false &&  have_posts() ) : ?>
 
             <header class="page-header">
                 <h1 class="page-title"><?php printf( __( 'Loop Search Results for: %s', 'twentythirteen' ), get_search_query() ); ?></h1>
@@ -30,11 +35,22 @@ $results= Elasticpress\EPPlugin::$latest_results;
                 <h1 class="page-title"><?php printf( __( 'ElasticSearch Results for: %s', 'elasticpress' ), '<span>' . get_search_query() . '</span>' ); ?></h1>
             </header>
 
-            <?php foreach($results as $r): ?>
-                <?php print_r($r) ?>
+            <?php 
+                $lasttype = '';
+                foreach($results as $r): 
+                if($lasttype !== $r['_type']):
+                    $lasttype = $r['_type'];
+                    ?>
                 <div>
-                    <h1><?php print_r($r['_source']['post_title']) ?></h1>
-                    <p><?php print_r($r['_source']['post_content']) ?></p>
+                    <h1><?php print_r($r['_type']) ?></h1>
+                </div>
+                <?php endif;?>
+                <div>
+                    <h2><?php print_r($r['_source']['post_title']) ?></h2>
+                    <p>Doc. Id: <?php print_r($r['_id']); ?></p>
+                    <p>Score: <?php print_r($r['_score']); ?></p>
+
+                    <pre><?php print_r($r['_source']) ?></pre>
                 </div>
             <?php endforeach; ?>
 <?php else : ?>
