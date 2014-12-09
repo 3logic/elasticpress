@@ -1,15 +1,14 @@
 <?php
-namespace Elasticpress;
+namespace Elasticpress\ACF;
 
 class EPMapper_ACF_taxonomy extends EPMapper_ACF_base {
 
-	public static function get_textual_value($post_ob, $field_spec){
+	public static function get_document_value($post_ob, $field_spec){
 		$raw_value = $post_ob->{$field_spec['name']};
 
 		if(!is_array($raw_value))
 			return "";
 
-		$text_value = "";
 		$args = array(
 		    'hide_empty'        => false, 
 		    'fields'            => 'all', 
@@ -25,8 +24,10 @@ class EPMapper_ACF_taxonomy extends EPMapper_ACF_base {
 			}
 		}
 
-		$text_value = implode(' + ', $text_pieces);
-		return $text_value;
+		if(sizeof($text_pieces))
+			return $text_pieces;
+		else
+			return null;
 	}
 	
 }

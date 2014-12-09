@@ -6,20 +6,52 @@ use \Elastica\Client,
 
 class EPClient {
 	private $client, $posts_index;
-	private static $instance;
+	private static $instances = array();
 
-	const INDEX_PATTERN = 'ep_%s_%s';
+	const INDEX_PATTERN = 'ep_%s_v%s';
 	const INDEX_ALIAS_PATTERN = 'ep_%s';
 
-	public static function get_instance($opts = []){
-		if(!self::$instance)
-			self::$instance = new self($opts);
+	static private function set_default_options($opts = array()){
+		if(!isset($opts['servers']))
+			$opts['servers'] = EPPlugin::$es_servers;
+		return $opts;
+	}
 
-		return self::$instance;
+	private function __construct($opts){
+		$opts = self::set_default_options($opts);
+
+		$client_settings = array('servers' =>$opts['servers']);
+
+		$this->client = new Client($client_settings);
+
+		$this->posts_index = $this->client->getIndex($this->get_index_name());
+		
+		//$opts['drop'] = true; //DEBUG
+		$drop_old = ( isset($opts['drop']) && $opts['drop'] );
+
+		$new_index = $this->ensure_index();
+		$this->elect_index( $new_index, $drop_old );
+	}
+
+	public static function has_instance($opts = array()){
+		$opts = self::set_default_options($opts);
+		$key = md5(serialize($opts));
+		
+		return isset(self::$instances[$key]);
+	}
+
+	public static function get_instance($opts = array()){
+		$opts = self::set_default_options($opts);
+		$key = md5(serialize($opts));
+
+		if(!isset(self::$instances[$key]))
+			self::$instances[$key] = new self($opts);
+
+		return self::$instances[$key];
 	}
 
 	public static function build_settings($filter = null){
-		$settings = array(); //$this->posts_index->getSettings();
+		$settings = array();
 		
 		$settings['analysis'] = array_merge_recursive( isset($settings['analysis'])?$settings['analysis']:array(), self::build_settings_analysis() );
 
@@ -28,12 +60,15 @@ class EPClient {
 
 	protected static function build_settings_analysis(){
 		$analysis = array();
-		$analysis = array_merge_recursive( $analysis, require_once (sprintf('%s../settings/analysis_common.php', plugin_dir_path( __FILE__ ) ) ) );
+		$common_path = EPPlugin::$paths['settings'].'analysis_common.php';
+
+		$analysis = array_merge_recursive($analysis, require($common_path) );
 		
 		$analyzer_langs = array('it', 'en');
 		foreach($analyzer_langs as $l){
-			$analysis = array_merge_recursive( $analysis, require_once (sprintf('%s../settings/analysis_%s.php', plugin_dir_path( __FILE__ ), $l) ) );
+			$analysis = array_merge_recursive( $analysis, require(EPPlugin::$paths['settings'].sprintf('analysis_%s.php', $l) ) );
 		}
+
 		return $analysis;
 	}
 
@@ -48,45 +83,72 @@ class EPClient {
 		return $this->get_index_name($version+1);
 	}
 
+	public static function update_index_version($version = null){
+		if(!$version)
+			$version = ((int)get_option(EP_INDEX_VERSION_OPT_KEY, 1) + 1);
+		update_option(EP_INDEX_VERSION_OPT_KEY, $version);
+	}
+
 	private static function get_index_alias(){
 		return strtolower(sprintf(self::INDEX_ALIAS_PATTERN,  EPPlugin::$current_site));
 	}
 
-	private function __construct($opts){
-		$this->client = new Client();
-		$this->posts_index = $this->client->getIndex($this->get_index_name());
-		//$opts['drop'] = true; //DEBUG
+	public function ensure_index($name = null, $settings = null){
+		if(!$this->client)
+			return null;
 
-		if( isset($opts['drop']) && $opts['drop'] ){
-			try{
-				$this->posts_index->delete(); 
-			}
-			catch(\Exception $e){}
-			// $this->client->getIndex(self::POSTINDEX_ALIAS)->delete();
-		}
-
-		$this->posts_index = $this->ensure_index();
-	}
-
-	public function ensure_index($name = null, $alias = null, $settings = null){
 		if(!$name)
-			$name = $settings = $this->get_index_name();
+			$name = $this->get_index_name();
 		if(!$settings)
 			$settings = $settings = self::build_settings();
-		if(!$alias)
-			$alias = self::get_index_alias();
 
 		$index = $this->client->getIndex($name);
-		if(!$this->posts_index->exists()){
+		if(!$index->exists()){
 			//\TFramework\Utils::debug($settings);
 			$index->create($settings);
-			$index->addAlias($alias);
 		}
 
 		return $index;
 	}
 
-	public function reindex($size = 10){
+	public function elect_index($index = null, $drop_old = false){
+		if(is_string($index) || is_null($index)){
+			$index = $this->ensure_index($index);
+		}
+
+		if(is_numeric($index) && ((int)$index===$index) ){
+			self::update_index_version($index);
+			$index = $this->ensure_index();
+		}
+
+		if($this->posts_index){
+			try{
+				$this->posts_index->removeAlias(self::get_index_alias());
+			}
+			catch(\Exception $e){}
+
+			if($drop_old){
+				try{ 
+					$this->posts_index->delete(); 
+				}
+				catch(\Exception $e){}
+			}
+		}
+
+		$this->posts_index = $index;
+		$this->posts_index->addAlias(self::get_index_alias(), true);
+		return $index;
+	}
+
+	public function copy_index_docs_to($new_index, $old_index = null, $size = 10){
+
+		if(is_string($new_index))
+			$new_index= $this->client->getIndex($new_index);
+
+		if(!$old_index)
+			$old_index = $this->posts_index;
+		else if(is_string($old_index))
+			$old_index= $this->client->getIndex($old_index);
 
 		$query = array(
 			'query'=> array(
@@ -95,10 +157,9 @@ class EPClient {
 			'size' => $size
 		);
 
-		$path = $this->posts_index->getName() . '/_search?scroll=10m&search_type=scan';
+		$path = $old_index->getName() . '/_search?scroll=10m&search_type=scan';
 
 		try{
-
 			$response = $this->client->request($path, Request::GET, $query);
 			$responseArray = $response->getData();
 
@@ -108,18 +169,23 @@ class EPClient {
 				$scrollpath = '_search/scroll?scroll=10m';
 				$response = $this->client->request($scrollpath, Request::GET, $scroll_id);
 				$responseArray = $response->getData();
-				print_r('<br>');
-				print_r('nuovo scroll');
+
+				$new_docs = [];
 				foreach($responseArray['hits']['hits'] as $h){
-					print_r('<br>');
-					print_r($h['_source']);
-					print_r('<br>');
+					$estype = $h['_type'];
+					if(!isset($new_docs[$estype]))
+						$new_docs[$estype] = array();
+					$new_docs[$estype][] = (new \Elastica\Document($h['_id'], $h['_source']) );
+				}
+				foreach($new_docs as $estype => $docs){
+					$type = $new_index->getType($estype);
+					$type->addDocuments($new_docs[$estype]);
 				}
 				
-			} while ($responseArray['hits']['hits']);
-			
+				$new_index->refresh();
 
-			die('<br>finito');
+			} while ($responseArray['hits']['hits']);
+
 		}
 		catch(\Exception $e){
 			die($e->getMessage());
@@ -127,13 +193,26 @@ class EPClient {
 
 	}
 
+	public function reindex($mapperclass){
+		$new_index_name = $this->get_next_index_name();
+		$new_index = $this->ensure_index($new_index_name);
+		$mapperclass::set_index_mappings($new_index, false);
+		
+		$this->copy_index_docs_to($new_index);
 
+		$this->elect_index($new_index);
+		
+		self::update_index_version();
+		$new_index->addAlias(self::get_index_alias(), true);
+
+		return $new_index_name;
+	}
 
 	public function get_posts_index(){
 		return $this->posts_index;
 	}
 
-	public function add_post($posts){
+	public function add_posts($posts){
 		if(!is_array($posts)){
 			$post = $posts;
 			$posts = array($post);
@@ -141,24 +220,30 @@ class EPClient {
 		
 		foreach($posts as $lpost){
 			if($lpost->post_status == 'publish'){
-				$posttype = $lpost->post_type;
-				$type = $this->posts_index->getType($posttype);
-				$type->addDocument(EPMapper::build_document_from_post($lpost));
+				$es_type = $lpost->post_type;
+				$type = $this->posts_index->getType($es_type);
+				$type->addDocuments(EPMapper::build_document_from_post($lpost));
 			}
 		}
 		$this->posts_index->refresh();
 	}
 
 	public function query_posts($query_str, $type = null){
-		$field_queries = apply_filters('ep_get_query_fields',array());  
+		$field_queries = apply_filters('ep_get_query_fields', EPMapper::get_default_query_fields());
 		
 		$queries = array();
+		$source_excludes = array();
+
 		foreach($field_queries as $f){
 
 			$boost = (isset($f['boost'])) ? (float)$f['boost'] : 1.0;
 
+			if(isset($f['source_exclude']) && $f['source_exclude'] )
+				$source_excludes[] = $f['name'];
+
+			$matchname = isset($f['qualified_name'])? $f['qualified_name']: $f['name'];
 			$match = array(
-				$f['name'] => array(
+				$matchname => array(
 					'query' => $query_str,
 					'boost' => $boost,
 					'minimum_should_match'=> '40%',
@@ -172,6 +257,9 @@ class EPClient {
 		// $queries = array_slice($queries, 0, 3);
 
 		$query = array(
+			'_source'=> array(
+		        'exclude'=> $source_excludes
+		    ),
 			'query'=> array(
 				'dis_max' => array(
 					'queries' => $queries,
@@ -194,7 +282,13 @@ class EPClient {
 
 		$path = $this->posts_index->getName() . '/' . $type . '/_search';
 
-		$response = $this->client->request($path, Request::GET, $query);
+
+		try{
+			$response = $this->client->request($path, Request::GET, $query);
+		}
+		catch(\Exception $e){
+			$response = null;
+		}
 		//print_r($response);
 		return $response;
 	}
@@ -205,8 +299,11 @@ class EPClient {
 			$posts = array($post);
 		}
 		foreach($posts as $k => $lpost){
-			$posttype = $lpost->post_type;
-			$type = $this->posts_index->getType($posttype);
+			if(is_numeric($lpost))
+				$lpost = get_post($lpost);
+
+			$es_type = EPMapper::get_es_type($lpost);
+			$type = $this->posts_index->getType($es_type);
 			try{
 				$type->deleteById($lpost->ID);
 			}

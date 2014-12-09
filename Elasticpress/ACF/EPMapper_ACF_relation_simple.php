@@ -1,16 +1,17 @@
 <?php
-namespace Elasticpress;
+namespace Elasticpress\ACF;
 
 class EPMapper_ACF_relation_simple extends EPMapper_ACF_base {
 
-	public static function get_textual_value($post_ob, $field_spec){
+	public static function get_document_value($post_ob, $field_spec){
 		$raw_value = $post_ob->{$field_spec['name']};
-		
-		$text_value = "";
+
 		$text_pieces = [];
 
 		if($field_spec['return_format'] == 'id'){
 			$ids = $raw_value;
+			if(!is_array($ids) || !sizeof($ids))
+				return '';
 
 			$query = new \WP_Query(array(
 				'post_type'      	=> $field_spec['post_type'],
@@ -22,12 +23,17 @@ class EPMapper_ACF_relation_simple extends EPMapper_ACF_base {
 			foreach($query->posts as $p){
 				$text_pieces[] = $p->post_title;
 			}
+
+			if(sizeof($text_pieces))
+				return $text_pieces;
+			else
+				return null;
 		}
 		else {
 			// TODO
 		}
-		$text_value = implode(' + ', $text_pieces);
-		return $text_value;
+
+		return '';
 	}
 	
 }
