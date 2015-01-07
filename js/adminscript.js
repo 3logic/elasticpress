@@ -47,9 +47,16 @@
     var SettingsApp = function(appData){
         this.STATUSES = STATUSES;
 
+        this.mapping_version = ko.observable(window.elasticpress_admin.mapping_version);
+
+        this.status_document_count = ko.observable(null);
+        this.status_history_count = ko.observable(null);
+        this.status_preset_count = ko.observable(null);
         this.server_test_status = ko.observable(null);
         this.mapping_test_status = ko.observable(null);
         
+        this.checked_clean_extra = ko.observable(false);
+
         this.server_test_permitted = ko.pureComputed(function(){
             return this.server_test_status() !== STATUSES.running;
         },this);
@@ -59,6 +66,10 @@
          * @type {Boolean}
          */
         this.is_requesting = ko.observable(false);
+
+        this.reindex_result = ko.observable(null);
+        this.index_all_posts_result = ko.observable(null);
+        this.clean_all_result = ko.observable(null);
         
 
         // this.is_cloning.subscribe(function(cloning){
@@ -66,10 +77,11 @@
         // });
         this.do_server_test();
         this.do_mapping_test();
+        this.do_retrieve_status();
         //this.check_previous_shell_status();
     };
 
-    SettingsApp.OPERATIONS = ['test'];
+    SettingsApp.OPERATIONS = ['test', 'reindex', 'index_all_posts', 'clean_all', 'status'];
 
     SettingsApp.prototype = {
 
@@ -101,6 +113,46 @@
             }.bind(this))
         },
 
+        do_retrieve_status: function(){
+            this._do_ajax('status', {'api_key': window.elasticpress_admin.api_key} , function(err,data){
+                if(data && data.success){
+                    this.status_document_count(data.status.document_count);
+                    this.status_history_count(data.status.history_count);
+                    this.status_preset_count(data.status.preset_count);
+                }
+            }.bind(this))
+        },
+
+        reindex : function(){
+            this._do_ajax('reindex', {'api_key': window.elasticpress_admin.api_key} , function(err,data){
+                if(err || !data){
+                    this.reindex_result(false);
+                }else{
+                    this.reindex_result(data.success ? true : false);
+                }
+            }.bind(this));
+        },
+
+        index_all_posts: function(){
+            this._do_ajax('index_all_posts', {'api_key': window.elasticpress_admin.api_key} , function(err,data){
+                if(err || !data){
+                    this.index_all_posts_result(false);
+                }else{
+                    this.index_all_posts_result(data.success ? true : false);
+                }
+            }.bind(this));
+        },
+
+        clean_all: function(){
+            this._do_ajax('clean_all', {'api_key': window.elasticpress_admin.api_key, 'clean_extra': this.checked_clean_extra()} , function(err,data){
+                if(err || !data){
+                    this.clean_all_result(false);
+                }else{
+                    this.clean_all_result(data.success ? true : false);
+                }
+            }.bind(this));
+        },
+
         /**
          * Restituisce l'url dell'operazione specificata
          * @param  {string} operation - Operazione @see SettingsApp~OPERATIONS
@@ -121,9 +173,6 @@
          */
         _do_ajax : function(operation, params, callback){
             var url = this._get_operation_url(operation);
-            if(url === false){
-                return callback( messages.INVALID_OP + operation );
-            }
             this.is_requesting(true);
             var ajax_params = {
                     url: url,

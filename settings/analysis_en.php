@@ -31,6 +31,18 @@ return array(
                 //"english_keywords",
                 "english_stemmer"
             )
+        ),
+        "custom_html_lang_en" => array(
+            "type" => "custom",
+            "char_filter" => array("html_strip"),
+            "tokenizer" => "standard",
+            "filter" => array(
+                "english_possessive_stemmer",
+                "lowercase",
+                "english_stop",
+                //"english_keywords",
+                "english_stemmer"
+            )
         )
     )
 

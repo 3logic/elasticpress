@@ -2,18 +2,27 @@
 namespace Elasticpress\Job;
 
 use TFramework\JobManager\Shell\OperationJob as OperationJob;
-use Elasticpress\EPPostStatusAccessor;
+use Elasticpress\EPPostStatusAccessor,
+	Elasticpress\EPClient,
+	Elasticpress\EPPlugin;
 
 class PostIndexerJob extends OperationJob{
 
 	public function act(){
 		$logger = $this->_generate_logger();
+		$parameters = $this->get_parameters();
 		
+		$blog_id = $parameters['blog_id'];
+		switch_to_blog($blog_id);
+
+		$result = null;
+
 		try{
-			$result = EPPostStatusAccessor::index_pending_posts();
+			EPPlugin::init();
+			$indexed = EPPostStatusAccessor::index_pending_posts();
+			$result = True;
 		}
 		catch(\Exception $e){
-			$result = null;
 			$logger->error($e->getMessage());
 		}
 		
@@ -23,6 +32,7 @@ class PostIndexerJob extends OperationJob{
 			//dont care
 		}
 
+		restore_current_blog();
 		return $result;
 	}
 

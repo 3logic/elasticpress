@@ -18,12 +18,12 @@ class EPPlugin {
     const INDEXING_TIMEOUT_SECONDS = 60;
 
     const JOB_MANAGER_CONTEXT = 'elasticpress';
-
+    
     public static $job_manager;
 
     public static $es_servers;
 
-    public static $latest_search, $latest_results;
+    public static $latest_search, $latest_results, $latest_error;
 
     public static $paths, $current_lang, $current_site, $conf;
 
@@ -31,7 +31,7 @@ class EPPlugin {
 
 
     public static function register_ajax_actions($ajax_helper){
-        $actions = array('index_posts', 'index_all_posts', 'reindex', 'test');
+        $actions = array('index_posts', 'index_all_posts', 'reindex', 'clean_all', 'test', 'query', 'suggest', 'history', 'status');
 
         foreach($actions as $a){
             $ajax_helper->register_path( $a, array(), array('Elasticpress\EPAjaxController',"ajax_do_$a") );
@@ -39,7 +39,7 @@ class EPPlugin {
     }
 
     public static function index_posts($post_ids = null, $background_job = false){
-        $result = array();
+        $result = array(); 
 
         $updated = 0;
         if( isset($post_ids) && is_array($post_ids) )
@@ -50,8 +50,12 @@ class EPPlugin {
         $result['marked']  = $updated + $stuck;
         $result['stuck']   = $stuck;
         if($background_job){
-            if( class_exists('\Elasticpress\Job\PostIndexerJob') )
-                $job = self::$job_manager->create_job( '\Elasticpress\Job\PostIndexerJob', array() );
+            if( class_exists('\Elasticpress\Job\PostIndexerJob') ){
+                $job = self::$job_manager->create_job( '\Elasticpress\Job\PostIndexerJob', array(
+                    'blog_id' => get_current_blog_id()
+                ));
+                $result['job_id'] = $job->get_id();
+            }
         }
         else
             $result['indexed'] = EPPostStatusAccessor::index_pending_posts();
@@ -66,8 +70,12 @@ class EPPlugin {
 
         $result['marked']  = $updated;
         if($background_job){
-            if( class_exists('\Elasticpress\Job\PostIndexerJob') )
-                $job = self::$job_manager->create_job( '\Elasticpress\Job\PostIndexerJob', array() );
+            if( class_exists('\Elasticpress\Job\PostIndexerJob') ){
+                $job = self::$job_manager->create_job( '\Elasticpress\Job\PostIndexerJob', array(
+                    'blog_id' => get_current_blog_id()
+                ));
+                $result['job_id'] = $job->get_id();
+            }
         }
         else
             $result['indexed'] = EPPostStatusAccessor::index_pending_posts();
@@ -75,19 +83,133 @@ class EPPlugin {
         return $result;
     }
 
-    private static function perform_ep_query($str, $type = null ){
+    public static function perform_ep_query($str, $options = array() ){
         $epclient = EPClient::get_instance();
+
+        $use_as_latest = (!array_key_exists('ignore_as_latest',$options)  || $options['ignore_as_latest']  === false );
+        $add_to_history= (!array_key_exists('ignore_as_history',$options) || $options['ignore_as_history'] === false );
         
-        $response = $epclient->query_posts($str, $type);
+        $latest_results = null;
+
+        if(!isset($options['size']))
+            $options['size'] = EP_POST_QUERY_DEFAULT_SIZE;
+
+        $response = $epclient->query_posts($str, $options);
         if($response){
             $responseArray = $response->getData();
-            self::$latest_results = $responseArray['hits']['hits'];
+            self::$latest_error = $response->getData();
+            $latest_results = $responseArray;
+            if($use_as_latest){
+                self::$latest_results = $latest_results;
+            }
         }
         else{
             self::$latest_results = null;
         }
 
-        self::$latest_search = array('string' => $str, 'type' => $type);
+        if($use_as_latest){
+            self::$latest_search = array('string' => $str, 'options' => $options);
+        }
+
+        if($add_to_history && $latest_results['hits']['total'] > 0 ){
+            self::add_history_doc($str);
+        }
+
+        return $latest_results;
+    }
+
+
+    public static function perform_ep_suggestion($str, $options = array() ){
+        $epclient = EPClient::get_instance();
+
+        $extra_suggestions = isset($options['extra_types']) && is_array($options['extra_types']) ? $options['extra_types'] : array('history','preset');
+        $options['extra_types'] = $extra_suggestions;
+
+        $extra_classes = array();
+        foreach ($extra_suggestions as $xs) {
+            $extra_class = EPMapper::get_extra($xs);
+            $extra_classes[$extra_class::$es_type] = $extra_class;
+        }
+
+        $response = $epclient->query_suggestions($str, $options);
+
+        if($response){
+
+            $responseArray = $response->getData();
+            $hits = $responseArray['hits']['hits'];
+
+            $results = array();
+            foreach($hits as $h){
+                $type = $h['_type'];
+                $field_name = (isset($extra_classes[$type])) ? $extra_classes[$type]::$main_field : 'post_title';
+                $results[] = array(
+                    'score' => $h['_score'],
+                    'type' => $type,
+                    'suggestion' => $h['_source'][$field_name],
+                    'highlight' => $h['highlight'][$field_name.'.autocomplete']
+                );
+            }
+        }
+        else
+            $results = null;
+
+        $results = apply_filters('ep_suggestions', $results);
+        return $results;
+    }
+
+    public static function perform_ep_history($options = array() ){
+        $epclient = EPClient::get_instance();
+ 
+        $response = $epclient->query_history($options);
+        if($response){
+            $responseArray = $response->getData();
+            $hits = $responseArray['hits']['hits'];
+
+            $results = array();
+            foreach($hits as $h){
+                $field_name = 'query_string';
+                $results[] = array(
+                    'count' => $h['_source']['extra_score'],
+                    'suggestion' => $h['_source'][$field_name]
+                );
+            }
+        }
+        else
+            $results = null;
+
+        $results = apply_filters('ep_history', $results);
+
+        return $results;
+    }
+
+    public static function perform_ep_status($options = array() ){
+        $epclient = EPClient::get_instance();
+
+        //Document count
+        $response = $epclient->count_posts($options);
+        if($response){
+            $response_array = $response->getData();
+            $count = $response_array['hits']['total'];
+        }
+        else{
+            $count = null;
+        }
+
+        //Extra count
+        $options = array('search_type' => 'count');
+        $response = $epclient->query_extra($options);
+        if($response){
+            $response_array = $response->getData();
+            $extra_count = $response_array['hits']['total'];
+            $buckets = $response_array['aggregations']['aggregate_by_type']['buckets'];
+            $history_count = $buckets['history']['doc_count'];
+            $preset_count = $buckets['preset']['doc_count'];
+        }
+        else{
+            $extra_count = $history_count = $preset_count = null;
+        }
+
+        return array('document_count'=>$count, 'extra_count'=>$extra_count, 'history_count'=>$history_count, 'preset_count'=>$preset_count);
     }
 
     public static function hooked_save_post( $post_id, $post, $update ) {
@@ -123,13 +245,16 @@ class EPPlugin {
         if ( $wpquery->is_search() ){
             $search_str = $wpquery->query['s'];
 
-            $type = (isset($wpquery->query['post_type'])) ? $wpquery->query['post_type'] : null;
-            self::perform_ep_query($search_str,$type);
-            
+            $options  = $_REQUEST;
+            $options['type'] = (isset($wpquery->query['post_type'])) ? $wpquery->query['post_type'] : null;
 
-            $ids = [];
-            if(is_array(self::$latest_results)){
-                foreach(self::$latest_results as $r){
+            $options = apply_filters('ep_search_options', $options);
+
+            self::perform_ep_query($search_str,$options);
+            
+            $ids = array();
+            if(is_array(self::$latest_results) && array_key_exists('hits', self::$latest_results) && !empty(self::$latest_results['hits']['hits'])){
+                foreach(self::$latest_results['hits']['hits'] as $r){
                     $ids[] = $r['_id'];
                 }
             }
@@ -139,13 +264,43 @@ class EPPlugin {
                 // this actually breaks get_search_query() in templates. Too bad...
                 // we fix it with the restore_query_string filter func
                 $wpquery->set('s', null); 
-                $wpquery->query = array(); 
+                //$wpquery->query = array();
             }
             else {
                 $wpquery->set('post__in',[0]);
             }
         }
     }
+
+
+    public static function add_history_doc($search_str){
+        $epclient = EPClient::get_instance();
+
+        $analyzer = EPMapper::$PROP_TEXT_NOTANALYZED['analyzer'];
+
+        $analysis = $epclient->analyze($search_str,array('analyzer'=>$analyzer));
+        $tokens = array_map(function($v){return isset($v['token'])?$v['token']:null;}, $analysis);
+        asort($tokens);
+
+        $tokens_hash = implode(' ', $tokens);
+
+        $query_doc = array('timestamp' => time(), 'query_string' => $search_str, 'tokens' => $tokens_hash);
+        $epclient->add_extra_doc('history', $query_doc);
+    }
+
+    public static function add_preset_doc($text){
+        $epclient = EPClient::get_instance();
+
+        $preset_doc = array('preset_text' => $text);
+        $epclient->add_extra_doc('preset', $preset_doc);
+    }
+
+    public static function clean_preset_docs(){
+        $epclient = EPClient::get_instance();
+        
+        return $epclient->clean_extra_docs('preset');
+    }
+
 
     public static function restore_query_string($search_query){
         return self::$latest_search['string'];
@@ -184,7 +339,7 @@ class EPPlugin {
 
     public static function init(){
         self::init_paths();        
-
+        
         // retrieve servers from options, if set
         // else, set it to a reasonable default
         $client_options = get_option(EP_CLIENT_OPT_KEY);
@@ -236,7 +391,6 @@ class EPPlugin {
 
         self::$job_manager = JobManager::get_instance(self::JOB_MANAGER_CONTEXT);
 
-        self:: init_admin();
     }
 
     protected static function init_paths(){
@@ -245,8 +399,6 @@ class EPPlugin {
             'templates' => sprintf('%s../templates/', plugin_dir_path( __FILE__ ) )
         );
     }
-
-    protected static function init_admin(){}
 
     public static function set_defaults($conf){
 
@@ -264,10 +416,26 @@ class EPPlugin {
     }
 
     public static function on_wp_loaded(){
-        $clientopts = []; //array('drop'=>1);
+        //This must be done here so that the custom post type have registered themselves as known types
+        self::init_late();
+
+        if(self::test() !== self::TEST_OK)
+            return;
+
+        $called_class = get_called_class();
+        add_action( 'save_post', array($called_class,'hooked_save_post'), 10, 3);
+        add_action( 'delete_post', array($called_class,'hooked_delete_post'), 10, 1);
+        //add_filter( 'request', array($called_class,'elasticsearch_on_search'), 10, 3);
+        add_action( 'pre_get_posts', array($called_class,'restrict_query_to_esearch_results'), 99 );
+        add_filter( 'get_search_query', array($called_class,'restore_query_string'), 99 );
+        //add_filter( 'template_include', array($called_class,'replace_search_template'), 99 );
+    }
+
+    public static function init_late(){
+        $clientopts = array(); //array('drop'=>1);
         try{
             //This is called here to construct our singleton with the correct options
-            $epclient = EPClient::get_instance($clientopts);
+            $epclient = EPClient::get_instance($clientopts,true);
         } catch(\Exception $e){
             return;
         }
@@ -277,14 +445,8 @@ class EPPlugin {
         } catch(\Exception $e){
             return;
         }
-
-        add_action( 'save_post', array(get_called_class(),'hooked_save_post'), 10, 3);
-        add_action( 'delete_post', array(get_called_class(),'hooked_delete_post'), 10, 1);
-        //add_filter( 'request', array(get_called_class(),'elasticsearch_on_search'), 10, 3);
-        add_action( 'pre_get_posts', array(get_called_class(),'restrict_query_to_esearch_results'), 99 );
-        add_filter( 'get_search_query', array(get_called_class(),'restore_query_string'), 99 );
-        add_filter( 'template_include', array(get_called_class(),'replace_search_template'), 99 );
     }
+
 
     public static function test( $tests = null, $options = array() ){
         if(!$tests)

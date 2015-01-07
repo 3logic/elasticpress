@@ -3,6 +3,33 @@
  * Template for displaying elastic Search Results pages
  *
  */
+
+if(!function_exists('debug')){
+    function debug($var = null){
+        $var_to_dump = func_get_args();
+        $debug_message = '';
+        foreach ($var_to_dump as $var) {
+            if($var === null)
+                $var = '(null)';
+            if($var === false)
+                $var = '(bool)false';
+            if($var === true)
+                $var = '(bool)true';
+            if($var === 0)
+                $var = '(int)0';
+            if($var === '')
+                $var = '\'\'';
+            if(is_string($var))
+                $var = htmlspecialchars($var, ENT_QUOTES);
+            $debug_message .= print_r($var ,true). '<br/>'; 
+        }
+        $backtrace = debug_backtrace();
+        $backtrace = $backtrace[0];
+        $file_name = $backtrace['file'];// substr($backtrace['file'],strripos($backtrace['file'],'/') + 1);
+        printf('<pre class="debug">%s:%d<br />%s</pre>',$file_name,$backtrace['line'],$debug_message);
+    }
+}
+
 get_header(); 
 $results= Elasticpress\EPPlugin::$latest_results;
 
@@ -30,7 +57,12 @@ $results= Elasticpress\EPPlugin::$latest_results;
 
 <?php endif; ?>
 
-<?php if ( sizeof($results) ) : ?>
+<?php 
+    debug( Elasticpress\EPPlugin::$latest_search);
+    if ( sizeof($results) ) : 
+
+            debug($results);
+?>
             <header class="page-header">
                 <h1 class="page-title"><?php printf( __( 'ElasticSearch Results for: %s', 'elasticpress' ), '<span>' . get_search_query() . '</span>' ); ?></h1>
             </header>
@@ -65,5 +97,5 @@ $results= Elasticpress\EPPlugin::$latest_results;
             </div><!-- #content -->
         </div><!-- #container -->
 
-<?php get_sidebar(); ?>
-<?php //get_footer(); ?>
+
+<?php get_footer(); ?>

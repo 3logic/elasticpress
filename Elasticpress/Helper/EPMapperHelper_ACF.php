@@ -4,8 +4,7 @@ namespace Elasticpress\Helper;
 class EPMapperHelper_ACF {
 	public static $mapperclass;
 
-	public static $mapped_acf_types = array('text', 'textarea', 'taxonomy', 'wysiwyg', 'relation_simple', 'relationship', 'file');
-
+	public static $mapped_acf_types = array('text', 'textarea', 'taxonomy', 'wysiwyg', 'relation_simple', 'relationship', 'post_object', 'file', 'email', 'url');
 
 	public static function get_acf_class($field_spec){
 		if(!in_array($field_spec['type'], static::$mapped_acf_types))

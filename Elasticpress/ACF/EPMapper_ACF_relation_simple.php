@@ -6,7 +6,7 @@ class EPMapper_ACF_relation_simple extends EPMapper_ACF_base {
 	public static function get_document_value($post_ob, $field_spec){
 		$raw_value = $post_ob->{$field_spec['name']};
 
-		$text_pieces = [];
+		$text_pieces = array();
 
 		if($field_spec['return_format'] == 'id'){
 			$ids = $raw_value;

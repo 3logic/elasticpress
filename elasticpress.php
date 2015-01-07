@@ -3,7 +3,7 @@
  * Plugin Name: ElasticPress
  * Plugin URI: http://www.3logic.it/elasticpress
  * Description: Power wordpress search with Elasticsearch
- * Version: 0.1.0
+ * Version: 99.1.0
  * Author: 3logic
  * Author URI: http://www.3logic.it
  * License: GPL2
@@ -26,6 +26,12 @@ if(!defined('EP_AJAX_BASENAME'))
 if(!defined('EP_API_KEY'))
     define('EP_API_KEY', 'O8Fq3rYX3Lsf8kgxFinipGcRV6uzHBzhtYz9mQd8Rknrzt8tme1a9bvaOuqmKJ');
 
+if(!defined('EP_TRANSLATION_KEY'))
+    define('EP_TRANSLATION_KEY', 'elasticpress');
+
+if(!defined('EP_POST_QUERY_DEFAULT_SIZE'))
+    define('EP_POST_QUERY_DEFAULT_SIZE', 100);
+
 require 'vendor/autoload.php';
 
 // AJAX
@@ -37,9 +43,9 @@ EPPlugin::register_ajax_actions($ajax_helper);
 $ajax_helper->enable();
 
 // Admin hooks
-add_action('admin_menu',            array('\Elasticpress\Admin\EPAdminPage',  'ep_plugin_menu'        ) );
-add_action('admin_init',            array('\Elasticpress\Admin\EPAdminPage',  'ep_plugin_admin_init'  ) );
-add_action('admin_enqueue_scripts', array('\Elasticpress\Admin\EPAdminPage',  'ep_plugin_admin_scripts' ) );
+add_action('admin_menu',            array('\Elasticpress\Admin\EPAdminPage', 'ep_plugin_menu'          ) );
+add_action('admin_init',            array('\Elasticpress\Admin\EPAdminPage', 'ep_plugin_admin_init'    ) );
+add_action('admin_enqueue_scripts', array('\Elasticpress\Admin\EPAdminPage', 'ep_plugin_admin_scripts' ) );
 
 // // Plugin activaction hooks
 register_activation_hook( __FILE__, array('Elasticpress\EPPlugin','activate') );

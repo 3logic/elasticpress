@@ -15,7 +15,7 @@ class EPMapper_ACF_taxonomy extends EPMapper_ACF_base {
 		); 
 
 		$terms = get_terms($field_spec['taxonomy'], $args);
-		$text_pieces = [];
+		$text_pieces = array();
 		foreach($terms as $t){
 			$term_id = $t->term_id;
 			$term_text = $t->name;
